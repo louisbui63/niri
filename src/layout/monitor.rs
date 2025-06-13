@@ -11,6 +11,7 @@ use smithay::output::Output;
 use smithay::utils::{Logical, Point, Rectangle, Size};
 
 use super::insert_hint_element::{InsertHintElement, InsertHintRenderElement};
+use super::pinned::{PinnedSpace, PinnedSpaceRenderElement};
 use super::scrolling::{Column, ColumnWidth};
 use super::tile::Tile;
 use super::workspace::{
@@ -82,6 +83,8 @@ pub struct Monitor<W: LayoutElement> {
     pub(super) clock: Clock,
     /// Configurable properties of the layout.
     pub(super) options: Rc<Options>,
+    /// Space for this monitor's pinned windows.
+    pub(super) pinned_space: PinnedSpace<W>,
 }
 
 #[derive(Debug)]
@@ -175,6 +178,7 @@ niri_render_elements! {
         InsertHint = CropRenderElement<InsertHintRenderElement>,
         UncroppedInsertHint = InsertHintRenderElement,
         Shadow = ShadowRenderElement,
+        PinnedSpace = PinnedSpaceRenderElement<R>
     }
 }
 
@@ -298,8 +302,15 @@ impl<W: LayoutElement> Monitor<W> {
             overview_open: false,
             overview_progress: None,
             workspace_switch: None,
-            clock,
-            options,
+            clock: clock.clone(),
+            options: options.clone(),
+            pinned_space: PinnedSpace::new(
+                view_size,
+                working_area,
+                scale.fractional_scale(),
+                clock,
+                options,
+            ),
         }
     }
 
@@ -340,7 +351,10 @@ impl<W: LayoutElement> Monitor<W> {
     }
 
     pub fn windows(&self) -> impl Iterator<Item = &W> {
-        self.workspaces.iter().flat_map(|ws| ws.windows())
+        self.workspaces
+            .iter()
+            .flat_map(|ws| ws.windows())
+            .chain(self.pinned_space.tiles().map(Tile::window))
     }
 
     pub fn has_window(&self, window: &W::Id) -> bool {
@@ -930,6 +944,9 @@ impl<W: LayoutElement> Monitor<W> {
             }
         }
 
+        self.pinned_space
+            .update_render_elements(is_active, self.working_area);
+
         self.insert_hint_render_loc = None;
         if let Some(hint) = &self.insert_hint {
             match hint.workspace {
@@ -1478,6 +1495,8 @@ impl<W: LayoutElement> Monitor<W> {
     > {
         let _span = tracy_client::span!("Monitor::render_elements");
 
+        // HERE:
+
         let scale = self.scale.fractional_scale();
         // Ceil the height in physical pixels.
         let height = (self.view_size.h * scale).ceil() as i32;
@@ -1528,6 +1547,12 @@ impl<W: LayoutElement> Monitor<W> {
             };
 
             let (floating, scrolling) = ws.render_elements(renderer, target, focus_ring);
+            let pinned = self
+                .pinned_space
+                .render_elements(renderer, self.working_area, target, focus_ring)
+                .into_iter()
+                .map(WorkspaceRenderElement::from)
+                .filter_map(map_ws_contents);
             let floating = floating.filter_map(map_ws_contents);
             let scrolling = scrolling.filter_map(map_ws_contents);
 
@@ -1544,7 +1569,7 @@ impl<W: LayoutElement> Monitor<W> {
             };
             let hint = hint.into_iter().flatten();
 
-            let iter = floating.chain(hint).chain(scrolling);
+            let iter = pinned.chain(floating).chain(hint).chain(scrolling);
 
             let iter = iter.map(move |elem| {
                 let elem = RescaleRenderElement::from_element(elem, Point::from((0, 0)), zoom);
@@ -1861,5 +1886,48 @@ impl<W: LayoutElement> Monitor<W> {
 
     pub fn working_area(&self) -> Rectangle<f64, Logical> {
         self.working_area
+    }
+
+    pub fn pinned_space(&self) -> &PinnedSpace<W> {
+        &self.pinned_space
+    }
+
+    pub fn toggle_window_pinned(&mut self, window: Option<&W::Id>) {
+        let w = if let Some(win) = window {
+            win
+        } else if let Some(win) = self.active_window() {
+            &win.id().clone()
+        } else {
+            return;
+        };
+
+        let workspace = self.workspaces.iter().position(|ws| ws.has_window(w));
+        let is_pinned = workspace.is_none();
+
+        let involved_workspace_idx = workspace.unwrap_or(self.active_workspace_idx);
+        let involved_workspace = &mut self.workspaces[involved_workspace_idx];
+
+        let transaction = Transaction::new();
+        if !is_pinned {
+            let mut removed = involved_workspace.remove_tile(w, transaction);
+            removed.tile.window_mut().set_pinned(true);
+            self.pinned_space.add_tile(removed.tile, true);
+        } else {
+            let mut removed = self.pinned_space.remove_tile(w);
+            removed.tile.window_mut().set_pinned(false);
+            let wid = involved_workspace.id();
+            self.add_tile(
+                removed.tile,
+                MonitorAddWindowTarget::Workspace {
+                    id: wid,
+                    column_idx: None,
+                },
+                ActivateWindow::Yes,
+                true,
+                removed.width,
+                removed.is_full_width,
+                removed.is_floating,
+            );
+        }
     }
 }

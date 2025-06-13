@@ -160,6 +160,14 @@ impl<'a> WindowRef<'a> {
         }
     }
 
+    pub fn is_pinned(self) -> bool {
+        match self {
+            // FIXME: This means you cannot set initial configure rules based on is-pinned.
+            WindowRef::Unmapped(_) => false,
+            WindowRef::Mapped(mapped) => mapped.is_pinned(),
+        }
+    }
+
     pub fn is_window_cast_target(self) -> bool {
         match self {
             WindowRef::Unmapped(_) => false,

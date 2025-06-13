@@ -840,6 +840,8 @@ pub enum Action {
         #[cfg_attr(feature = "clap", arg(long))]
         id: u64,
     },
+    /// Move the focused window between a workspace and the output's pinned space.
+    ToggleWindowPinned {},
 }
 
 /// Change in window or column size.

@@ -80,6 +80,7 @@ pub mod focus_ring;
 pub mod insert_hint_element;
 pub mod monitor;
 pub mod opening_window;
+pub mod pinned;
 pub mod scrolling;
 pub mod shadow;
 pub mod tab_indicator;
@@ -207,6 +208,7 @@ pub trait LayoutElement {
     fn set_activated(&mut self, active: bool);
     fn set_active_in_column(&mut self, active: bool);
     fn set_floating(&mut self, floating: bool);
+    fn set_pinned(&mut self, pinned: bool);
     fn set_bounds(&self, bounds: Size<i32, Logical>);
     fn is_ignoring_opacity_window_rule(&self) -> bool;
 
@@ -5255,6 +5257,100 @@ impl<W: LayoutElement> Layout<W> {
             }
             PresetSize::Proportion(prop) => ColumnWidth::Proportion(prop),
         }
+    }
+
+    pub fn toggle_window_pinned(&mut self, window: Option<&W::Id>) {
+        // HERE:
+        // if let Some(InteractiveMoveState::Moving(move_)) = &mut self.interactive_move {
+        //     if window.is_none() || window == Some(move_.tile.window().id()) {
+        //         move_.is_floating = !move_.is_floating;
+        //
+        //         // When going to floating, restore the floating window size.
+        //         if move_.is_floating {
+        //             let floating_size = move_.tile.floating_window_size;
+        //             let win = move_.tile.window_mut();
+        //             let mut size =
+        //                 floating_size.unwrap_or_else(|| win.expected_size().unwrap_or_default());
+        //
+        //             // Apply min/max size window rules. If requesting a concrete size, apply
+        //             // completely; if requesting (0, 0), apply only when min/max results in a fixed
+        //             // size.
+        //             let min_size = win.min_size();
+        //             let max_size = win.max_size();
+        //             size.w = ensure_min_max_size_maybe_zero(size.w, min_size.w, max_size.w);
+        //             size.h = ensure_min_max_size_maybe_zero(size.h, min_size.h, max_size.h);
+        //
+        //             win.request_size_once(size, true);
+        //
+        //             // Animate the tile back to opaque.
+        //             move_.tile.animate_alpha(
+        //                 INTERACTIVE_MOVE_ALPHA,
+        //                 1.,
+        //                 self.options.animations.window_movement.0,
+        //             );
+        //         } else {
+        //             // Animate the tile back to semitransparent.
+        //             move_.tile.animate_alpha(
+        //                 1.,
+        //                 INTERACTIVE_MOVE_ALPHA,
+        //                 self.options.animations.window_movement.0,
+        //             );
+        //             move_.tile.hold_alpha_animation_after_done();
+        //         }
+        //
+        //         return;
+        //     }
+        // }
+
+        // let workspace = if let Some(window) = window {
+        //     let in_active = self
+        //         .active_workspace_mut()
+        //         .filter(|aw| aw.has_window(window));
+        //     if let Some(w) = in_active {
+        //         Some(w)
+        //     } else {
+        //         Some(
+        //             self.workspaces_mut()
+        //                 .find(|ws| ws.has_window(window))
+        //                 .unwrap(),
+        //         )
+        //     }
+        // } else {
+        //     self.active_workspace_mut()
+        // };
+
+        // let Some(workspace) = workspace else {
+        //     return;
+        // };
+        let mut window = window;
+        if window.is_none() {
+            window = self
+                .active_workspace_mut()
+                .and_then(|ws| ws.active_window().map(|w| w.id()));
+        }
+
+        if window.is_none() {
+            return;
+        }
+
+        let window = window.cloned();
+
+        let output: &mut Monitor<W> = if let MonitorSet::Normal {
+            monitors: m,
+            primary_idx: _,
+            active_monitor_idx: _,
+        } = &mut self.monitor_set
+        {
+            // there is a monitor, so the window must be on one of them
+            m.iter_mut()
+                .find(|o| o.has_window(window.as_ref().unwrap()))
+                .unwrap()
+        } else {
+            return;
+        };
+        // Here we actually need the monitor who contains the window, as it is the one who should
+        // manage the moving around
+        output.toggle_window_pinned(window.as_ref());
     }
 }
 

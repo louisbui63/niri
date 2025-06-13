@@ -16,6 +16,7 @@ use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::SurfaceCachedState;
 
 use super::floating::{FloatingSpace, FloatingSpaceRenderElement};
+use super::pinned::PinnedSpaceRenderElement;
 use super::scrolling::{
     Column, ColumnWidth, ScrollDirection, ScrollingSpace, ScrollingSpaceRenderElement,
 };
@@ -136,6 +137,9 @@ niri_render_elements! {
     WorkspaceRenderElement<R> => {
         Scrolling = ScrollingSpaceRenderElement<R>,
         Floating = FloatingSpaceRenderElement<R>,
+        // this is not super elegant because the pinned space is workspace independant but it makes
+        // rendering significantly easier
+        Pinned = PinnedSpaceRenderElement<R>,
     }
 }
 
