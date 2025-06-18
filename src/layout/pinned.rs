@@ -527,6 +527,7 @@ impl<W: LayoutElement> PinnedSpace<W> {
         id: &W::Id,
         blocker: TransactionBlocker,
     ) {
+        log::warn!("start close anim (pinned)");
         let (tile, tile_pos) = self
             .tiles_with_render_positions_mut(false)
             .find(|(tile, _)| tile.window().id() == id)
@@ -1231,6 +1232,32 @@ impl<W: LayoutElement> PinnedSpace<W> {
                 pos + self.working_area.loc
             })
         })
+    }
+
+    pub fn store_unmap_snapshot_if_empty(
+        &mut self,
+        renderer: &mut GlesRenderer,
+        window: &<W as LayoutElement>::Id,
+    ) {
+        let view_size = self.view_size;
+        for (tile, tile_pos) in self.tiles_with_render_positions_mut(false) {
+            if tile.window().id() == window {
+                let view_pos = Point::from((-tile_pos.x, -tile_pos.y));
+                let view_rect = Rectangle::new(view_pos, view_size);
+                tile.update_render_elements(false, view_rect);
+                tile.store_unmap_snapshot_if_empty(renderer);
+                return;
+            }
+        }
+    }
+
+    pub fn clear_unmap_snapshot(&mut self, window: &<W as LayoutElement>::Id) {
+        for tile in self.tiles_mut() {
+            if tile.window().id() == window {
+                let _ = tile.take_unmap_snapshot();
+                return;
+            }
+        }
     }
 
     #[cfg(test)]

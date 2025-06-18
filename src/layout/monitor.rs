@@ -357,6 +357,10 @@ impl<W: LayoutElement> Monitor<W> {
             .chain(self.pinned_space.tiles().map(Tile::window))
     }
 
+    pub fn pinned_windows(&self) -> impl Iterator<Item = &W> {
+        self.pinned_space.tiles().map(Tile::window)
+    }
+
     pub fn has_window(&self, window: &W::Id) -> bool {
         self.windows().any(|win| win.id() == window)
     }
@@ -912,6 +916,7 @@ impl<W: LayoutElement> Monitor<W> {
         for ws in &mut self.workspaces {
             ws.advance_animations();
         }
+        self.pinned_space.advance_animations();
     }
 
     pub(super) fn are_animations_ongoing(&self) -> bool {
@@ -919,6 +924,7 @@ impl<W: LayoutElement> Monitor<W> {
             .as_ref()
             .is_some_and(|s| s.is_animation_ongoing())
             || self.workspaces.iter().any(|ws| ws.are_animations_ongoing())
+            || self.pinned_space.are_animations_ongoing()
     }
 
     pub fn are_transitions_ongoing(&self) -> bool {
@@ -1375,6 +1381,14 @@ impl<W: LayoutElement> Monitor<W> {
     }
 
     pub fn window_under(&self, pos_within_output: Point<f64, Logical>) -> Option<(&W, HitType)> {
+        if let Some(rv) = self
+            .pinned_space
+            .tiles_with_render_positions()
+            .find_map(|(tile, tile_pos)| HitType::hit_tile(tile, tile_pos, pos_within_output))
+        {
+            return Some(rv);
+        }
+
         let (ws, geo) = self.workspace_under(pos_within_output)?;
 
         if self.overview_progress.is_some() {

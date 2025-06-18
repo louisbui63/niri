@@ -678,6 +678,7 @@ impl XdgShellHandler for State {
                 .layout
                 .start_close_animation_for_window(renderer, &window, blocker);
         });
+        warn!("transaction passed successfully");
 
         let active_window = self.niri.layout.focus().map(|m| &m.window);
         let was_active = active_window == Some(&window);
@@ -698,6 +699,7 @@ impl XdgShellHandler for State {
         if let Some(output) = output {
             self.niri.queue_redraw(&output);
         }
+        warn!("function finished");
     }
 
     fn popup_destroyed(&mut self, surface: PopupSurface) {

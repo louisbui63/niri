@@ -93,6 +93,7 @@ impl ClosingWindow {
         blocker: TransactionBlocker,
         anim: Animation,
     ) -> anyhow::Result<Self> {
+        log::warn!("new Closing Window");
         let _span = tracy_client::span!("ClosingWindow::new");
 
         let mut render_to_texture = |elements: Vec<E>| -> anyhow::Result<_> {

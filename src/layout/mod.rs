@@ -1256,6 +1256,9 @@ impl<W: LayoutElement> Layout<W> {
                             return Some(removed);
                         }
                     }
+                    if mon.pinned_space.has_window(window) {
+                        return Some(mon.pinned_space.remove_tile(window));
+                    }
                 }
             }
             MonitorSet::NoOutputs { workspaces, .. } => {
@@ -1453,6 +1456,11 @@ impl<W: LayoutElement> Layout<W> {
                             return Some((window, Some(&mon.output)));
                         }
                     }
+                    for t in mon.pinned_space.tiles() {
+                        if t.window().is_wl_surface(wl_surface) {
+                            return Some((t.window(), Some(&mon.output)));
+                        }
+                    }
                 }
             }
             MonitorSet::NoOutputs { workspaces } => {
@@ -1483,6 +1491,11 @@ impl<W: LayoutElement> Layout<W> {
                     for ws in &mut mon.workspaces {
                         if let Some(window) = ws.find_wl_surface_mut(wl_surface) {
                             return Some((window, Some(&mon.output)));
+                        }
+                    }
+                    for t in mon.pinned_space.tiles_mut() {
+                        if t.window().is_wl_surface(wl_surface) {
+                            return Some((t.window_mut(), Some(&mon.output)));
                         }
                     }
                 }
@@ -1573,15 +1586,14 @@ impl<W: LayoutElement> Layout<W> {
             return true;
         };
 
-        let (mon, ws_idx) = monitors
-            .iter()
-            .find_map(|mon| {
-                mon.workspaces
-                    .iter()
-                    .position(|ws| ws.has_window(window))
-                    .map(|ws_idx| (mon, ws_idx))
-            })
-            .unwrap();
+        let Some((mon, ws_idx)) = monitors.iter().find_map(|mon| {
+            mon.workspaces
+                .iter()
+                .position(|ws| ws.has_window(window))
+                .map(|ws_idx| (mon, ws_idx))
+        }) else {
+            return true;
+        };
 
         // During a gesture, focus-follows-mouse does not cause any unintended workspace switches.
         if let Some(WorkspaceSwitch::Gesture(_)) = mon.workspace_switch {
@@ -1592,6 +1604,7 @@ impl<W: LayoutElement> Layout<W> {
     }
 
     pub fn activate_window(&mut self, window: &W::Id) {
+        warn!("activating window {:?}", window);
         if let Some(InteractiveMoveState::Moving(move_)) = &self.interactive_move {
             if move_.tile.window().id() == window {
                 return;
@@ -1624,6 +1637,7 @@ impl<W: LayoutElement> Layout<W> {
                     return;
                 }
             }
+            let _ = mon.pinned_space.activate_window(window);
         }
     }
 
@@ -1757,6 +1771,9 @@ impl<W: LayoutElement> Layout<W> {
                         for win in ws.windows() {
                             f(win, Some(&mon.output), Some(ws.id()));
                         }
+                    }
+                    for win in mon.pinned_windows() {
+                        f(win, Some(&mon.output), None)
                     }
                 }
             }
@@ -4043,6 +4060,8 @@ impl<W: LayoutElement> Layout<W> {
             return false;
         };
 
+        // HERE :
+
         let Some((mon, (ws, ws_geo))) = monitors.iter().find_map(|mon| {
             mon.workspaces_with_render_geo()
                 .find(|(ws, _)| ws.has_window(&window_id))
@@ -4938,6 +4957,11 @@ impl<W: LayoutElement> Layout<W> {
                             return;
                         }
                     }
+                    if mon.pinned_space.has_window(window) {
+                        mon.pinned_space
+                            .store_unmap_snapshot_if_empty(renderer, window);
+                        return;
+                    }
                 }
             }
             MonitorSet::NoOutputs { workspaces, .. } => {
@@ -4968,6 +4992,9 @@ impl<W: LayoutElement> Layout<W> {
                             return;
                         }
                     }
+                    if mon.pinned_space.has_window(window) {
+                        mon.pinned_space.clear_unmap_snapshot(window)
+                    }
                 }
             }
             MonitorSet::NoOutputs { workspaces, .. } => {
@@ -4988,10 +5015,12 @@ impl<W: LayoutElement> Layout<W> {
         blocker: TransactionBlocker,
     ) {
         let _span = tracy_client::span!("Layout::start_close_animation_for_window");
+        log::warn!("start close anim");
 
         let zoom = self.overview_zoom();
 
         if let Some(InteractiveMoveState::Moving(move_)) = &mut self.interactive_move {
+            // HERE:
             if move_.tile.window().id() == window {
                 let Some(snapshot) = move_.tile.take_unmap_snapshot() else {
                     return;
@@ -5028,6 +5057,11 @@ impl<W: LayoutElement> Layout<W> {
                             ws.start_close_animation_for_window(renderer, window, blocker);
                             return;
                         }
+                    }
+                    if mon.pinned_space.has_window(window) {
+                        mon.pinned_space
+                            .start_close_animation_for_window(renderer, window, blocker);
+                        return;
                     }
                 }
             }
@@ -5120,7 +5154,6 @@ impl<W: LayoutElement> Layout<W> {
                     let is_active = self.is_active
                         && idx == *active_monitor_idx
                         && !matches!(self.interactive_move, Some(InteractiveMoveState::Moving(_)));
-
                     if ongoing_scrolling_dnd.is_some() && self.overview_open {
                         // Begin the scroll on new monitors and when opening the overview.
                         mon.dnd_scroll_gesture_begin();
@@ -5146,6 +5179,8 @@ impl<W: LayoutElement> Layout<W> {
                             }
                         }
                     }
+
+                    mon.pinned_space.refresh(is_active, is_active);
                 }
             }
             MonitorSet::NoOutputs { workspaces, .. } => {
@@ -5229,7 +5264,18 @@ impl<W: LayoutElement> Layout<W> {
             .workspaces()
             .flat_map(|(mon, _, ws)| ws.windows().map(move |win| (mon, win)));
 
-        moving_window.chain(rest)
+        let pinned = match &self.monitor_set {
+            MonitorSet::Normal {
+                monitors,
+                primary_idx: _,
+                active_monitor_idx: _,
+            } => monitors
+                .iter()
+                .flat_map(|mon| mon.pinned_windows().map(move |win| (Some(mon), win))),
+            MonitorSet::NoOutputs { workspaces: _ } => todo!(),
+        };
+
+        moving_window.chain(rest).chain(pinned)
     }
 
     pub fn has_window(&self, window: &W::Id) -> bool {
@@ -5260,68 +5306,6 @@ impl<W: LayoutElement> Layout<W> {
     }
 
     pub fn toggle_window_pinned(&mut self, window: Option<&W::Id>) {
-        // HERE:
-        // if let Some(InteractiveMoveState::Moving(move_)) = &mut self.interactive_move {
-        //     if window.is_none() || window == Some(move_.tile.window().id()) {
-        //         move_.is_floating = !move_.is_floating;
-        //
-        //         // When going to floating, restore the floating window size.
-        //         if move_.is_floating {
-        //             let floating_size = move_.tile.floating_window_size;
-        //             let win = move_.tile.window_mut();
-        //             let mut size =
-        //                 floating_size.unwrap_or_else(|| win.expected_size().unwrap_or_default());
-        //
-        //             // Apply min/max size window rules. If requesting a concrete size, apply
-        //             // completely; if requesting (0, 0), apply only when min/max results in a fixed
-        //             // size.
-        //             let min_size = win.min_size();
-        //             let max_size = win.max_size();
-        //             size.w = ensure_min_max_size_maybe_zero(size.w, min_size.w, max_size.w);
-        //             size.h = ensure_min_max_size_maybe_zero(size.h, min_size.h, max_size.h);
-        //
-        //             win.request_size_once(size, true);
-        //
-        //             // Animate the tile back to opaque.
-        //             move_.tile.animate_alpha(
-        //                 INTERACTIVE_MOVE_ALPHA,
-        //                 1.,
-        //                 self.options.animations.window_movement.0,
-        //             );
-        //         } else {
-        //             // Animate the tile back to semitransparent.
-        //             move_.tile.animate_alpha(
-        //                 1.,
-        //                 INTERACTIVE_MOVE_ALPHA,
-        //                 self.options.animations.window_movement.0,
-        //             );
-        //             move_.tile.hold_alpha_animation_after_done();
-        //         }
-        //
-        //         return;
-        //     }
-        // }
-
-        // let workspace = if let Some(window) = window {
-        //     let in_active = self
-        //         .active_workspace_mut()
-        //         .filter(|aw| aw.has_window(window));
-        //     if let Some(w) = in_active {
-        //         Some(w)
-        //     } else {
-        //         Some(
-        //             self.workspaces_mut()
-        //                 .find(|ws| ws.has_window(window))
-        //                 .unwrap(),
-        //         )
-        //     }
-        // } else {
-        //     self.active_workspace_mut()
-        // };
-
-        // let Some(workspace) = workspace else {
-        //     return;
-        // };
         let mut window = window;
         if window.is_none() {
             window = self
