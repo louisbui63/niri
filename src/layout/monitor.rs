@@ -85,6 +85,8 @@ pub struct Monitor<W: LayoutElement> {
     pub(super) options: Rc<Options>,
     /// Space for this monitor's pinned windows.
     pub(super) pinned_space: PinnedSpace<W>,
+    /// Whether the pinned layer is active
+    pub(super) pinned_is_active: bool,
 }
 
 #[derive(Debug)]
@@ -311,6 +313,7 @@ impl<W: LayoutElement> Monitor<W> {
                 clock,
                 options,
             ),
+            pinned_is_active: false,
         }
     }
 
@@ -359,6 +362,10 @@ impl<W: LayoutElement> Monitor<W> {
 
     pub fn pinned_windows(&self) -> impl Iterator<Item = &W> {
         self.pinned_space.tiles().map(Tile::window)
+    }
+
+    pub fn pinned_windows_mut(&mut self) -> impl Iterator<Item = &mut W> {
+        self.pinned_space.tiles_mut().map(Tile::window_mut)
     }
 
     pub fn has_window(&self, window: &W::Id) -> bool {
@@ -875,7 +882,11 @@ impl<W: LayoutElement> Monitor<W> {
     }
 
     pub fn active_window(&self) -> Option<&W> {
-        self.active_workspace_ref().active_window()
+        if self.pinned_is_active {
+            self.pinned_space.active_window()
+        } else {
+            self.active_workspace_ref().active_window()
+        }
     }
 
     pub fn advance_animations(&mut self) {
@@ -951,7 +962,7 @@ impl<W: LayoutElement> Monitor<W> {
         }
 
         self.pinned_space
-            .update_render_elements(is_active, self.working_area);
+            .update_render_elements(is_active, Rectangle::from_size(self.view_size));
 
         self.insert_hint_render_loc = None;
         if let Some(hint) = &self.insert_hint {
@@ -1563,7 +1574,12 @@ impl<W: LayoutElement> Monitor<W> {
             let (floating, scrolling) = ws.render_elements(renderer, target, focus_ring);
             let pinned = self
                 .pinned_space
-                .render_elements(renderer, self.working_area, target, focus_ring)
+                .render_elements(
+                    renderer,
+                    Rectangle::from_size(self.view_size),
+                    target,
+                    focus_ring,
+                )
                 .into_iter()
                 .map(WorkspaceRenderElement::from)
                 .filter_map(map_ws_contents);

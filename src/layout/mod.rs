@@ -1312,6 +1312,9 @@ impl<W: LayoutElement> Layout<W> {
                             return;
                         }
                     }
+                    if mon.pinned_space.has_window(window) {
+                        mon.pinned_space.update_window(window, serial);
+                    }
                 }
             }
             MonitorSet::NoOutputs { workspaces, .. } => {
@@ -1622,6 +1625,7 @@ impl<W: LayoutElement> Layout<W> {
 
         for (monitor_idx, mon) in monitors.iter_mut().enumerate() {
             for (workspace_idx, ws) in mon.workspaces.iter_mut().enumerate() {
+                mon.pinned_is_active = false;
                 if ws.activate_window(window) {
                     *active_monitor_idx = monitor_idx;
 
@@ -1637,7 +1641,10 @@ impl<W: LayoutElement> Layout<W> {
                     return;
                 }
             }
-            let _ = mon.pinned_space.activate_window(window);
+            if mon.pinned_space.activate_window(window) {
+                mon.pinned_is_active = true;
+                return;
+            }
         }
     }
 
@@ -1660,6 +1667,7 @@ impl<W: LayoutElement> Layout<W> {
         for (monitor_idx, mon) in monitors.iter_mut().enumerate() {
             for (workspace_idx, ws) in mon.workspaces.iter_mut().enumerate() {
                 if ws.activate_window_without_raising(window) {
+                    mon.pinned_is_active = false;
                     *active_monitor_idx = monitor_idx;
 
                     // If currently in the middle of a vertical swipe between the target workspace
@@ -1673,6 +1681,10 @@ impl<W: LayoutElement> Layout<W> {
 
                     return;
                 }
+            }
+            if mon.pinned_space.activate_window_without_raising(window) {
+                mon.pinned_is_active = true;
+                return;
             }
         }
     }
@@ -1733,8 +1745,9 @@ impl<W: LayoutElement> Layout<W> {
 
         let mon = monitors.iter().find(|mon| &mon.output == output).unwrap();
         let mon_windows = mon.workspaces.iter().flat_map(|ws| ws.windows());
+        let pinned_windows = mon.pinned_space.tiles().map(Tile::window);
 
-        moving_window.chain(mon_windows)
+        moving_window.chain(mon_windows).chain(pinned_windows)
     }
 
     pub fn windows_for_output_mut(&mut self, output: &Output) -> impl Iterator<Item = &mut W> + '_ {
@@ -1755,8 +1768,9 @@ impl<W: LayoutElement> Layout<W> {
             .find(|mon| &mon.output == output)
             .unwrap();
         let mon_windows = mon.workspaces.iter_mut().flat_map(|ws| ws.windows_mut());
+        let pinned_windows = mon.pinned_space.tiles_mut().map(Tile::window_mut);
 
-        moving_window.chain(mon_windows)
+        moving_window.chain(mon_windows).chain(pinned_windows)
     }
 
     pub fn with_windows(&self, mut f: impl FnMut(&W, Option<&Output>, Option<WorkspaceId>)) {
@@ -1799,6 +1813,9 @@ impl<W: LayoutElement> Layout<W> {
                         for win in ws.windows_mut() {
                             f(win, Some(&mon.output));
                         }
+                    }
+                    for win in mon.pinned_space.tiles_mut().map(Tile::window_mut) {
+                        f(win, Some(&mon.output));
                     }
                 }
             }
@@ -4126,6 +4143,8 @@ impl<W: LayoutElement> Layout<W> {
             return false;
         };
 
+        // HERE :
+
         match state {
             InteractiveMoveState::Starting {
                 window_id,
@@ -4685,6 +4704,9 @@ impl<W: LayoutElement> Layout<W> {
                             return ws.interactive_resize_begin(window, edges);
                         }
                     }
+                    if mon.pinned_space.has_window(&window) {
+                        return mon.pinned_space.interactive_resize_begin(window, edges);
+                    }
                 }
             }
             MonitorSet::NoOutputs { workspaces, .. } => {
@@ -4718,6 +4740,9 @@ impl<W: LayoutElement> Layout<W> {
                             return ws.interactive_resize_update(window, delta);
                         }
                     }
+                    if mon.pinned_space.has_window(window) {
+                        return mon.pinned_space.interactive_resize_update(window, delta);
+                    }
                 }
             }
             MonitorSet::NoOutputs { workspaces, .. } => {
@@ -4747,6 +4772,9 @@ impl<W: LayoutElement> Layout<W> {
                             ws.interactive_resize_end(Some(window));
                             return;
                         }
+                    }
+                    if mon.pinned_space.has_window(window) {
+                        return mon.pinned_space.interactive_resize_end(Some(window));
                     }
                 }
             }
