@@ -433,6 +433,8 @@ struct InteractiveMoveData<W: LayoutElement> {
     pub(self) is_full_width: bool,
     /// Whether the window targets the floating layout.
     pub(self) is_floating: bool,
+    /// Whether the window targets the pinned space.
+    pub(self) is_pinned: bool,
     /// Pointer location within the visual window geometry as ratio from geometry size.
     ///
     /// This helps the pointer remain inside the window as it resizes.
@@ -4077,30 +4079,49 @@ impl<W: LayoutElement> Layout<W> {
             return false;
         };
 
-        // HERE :
+        let (zoom, tile, tile_offset, geo, is_floating) = if let Some(mon) = monitors
+            .iter()
+            .find(|mon| mon.pinned_space.has_window(&window_id))
+        {
+            let (tile, tile_offset) = mon
+                .pinned_space
+                .tiles_with_offsets()
+                .find(|(tile, _)| tile.window().id() == &window_id)
+                .unwrap();
+            (
+                mon.overview_zoom(),
+                tile,
+                tile_offset,
+                Rectangle::from_size(mon.view_size()),
+                true,
+            )
+        } else {
+            let Some((mon, (ws, ws_geo))) = monitors.iter().find_map(|mon| {
+                mon.workspaces_with_render_geo()
+                    .find(|(ws, _)| ws.has_window(&window_id))
+                    .map(|rv| (mon, rv))
+            }) else {
+                return false;
+            };
 
-        let Some((mon, (ws, ws_geo))) = monitors.iter().find_map(|mon| {
-            mon.workspaces_with_render_geo()
-                .find(|(ws, _)| ws.has_window(&window_id))
-                .map(|rv| (mon, rv))
-        }) else {
-            return false;
+            if mon.output() != output {
+                return false;
+            }
+
+            let zoom = mon.overview_zoom();
+
+            let is_floating = ws.is_floating(&window_id);
+            let (tile, tile_offset, _visible) = ws
+                .tiles_with_render_positions()
+                .find(|(tile, _, _)| tile.window().id() == &window_id)
+                .unwrap();
+
+            (zoom, tile, tile_offset, ws_geo, is_floating)
         };
 
-        if mon.output() != output {
-            return false;
-        }
-
-        let zoom = mon.overview_zoom();
-
-        let is_floating = ws.is_floating(&window_id);
-        let (tile, tile_offset, _visible) = ws
-            .tiles_with_render_positions()
-            .find(|(tile, _, _)| tile.window().id() == &window_id)
-            .unwrap();
         let window_offset = tile.window_loc();
 
-        let tile_pos = ws_geo.loc + tile_offset.upscale(zoom);
+        let tile_pos = geo.loc + tile_offset.upscale(zoom);
 
         let pointer_offset_within_window =
             start_pos_within_output - tile_pos - window_offset.upscale(zoom);
@@ -4174,7 +4195,7 @@ impl<W: LayoutElement> Layout<W> {
                 }
                 .band(sq_dist / INTERACTIVE_MOVE_START_THRESHOLD);
 
-                let (is_floating, tile) = self
+                let mut tile_info = self
                     .workspaces_mut()
                     .find(|ws| ws.has_window(&window_id))
                     .map(|ws| {
@@ -4183,9 +4204,34 @@ impl<W: LayoutElement> Layout<W> {
                             ws.tiles_mut()
                                 .find(|tile| *tile.window().id() == window_id)
                                 .unwrap(),
+                            false,
                         )
-                    })
-                    .unwrap();
+                    });
+                if tile_info.is_none() {
+                    tile_info = if let MonitorSet::Normal {
+                        monitors,
+                        primary_idx: _,
+                        active_monitor_idx: _,
+                    } = &mut self.monitor_set
+                    {
+                        monitors
+                            .iter_mut()
+                            .find(|mon| mon.has_window(&window_id))
+                            .map(|mon| {
+                                (
+                                    true,
+                                    mon.pinned_space
+                                        .tiles_mut()
+                                        .find(|tile| *tile.window().id() == window_id)
+                                        .unwrap(),
+                                    true,
+                                )
+                            })
+                    } else {
+                        unreachable!()
+                    }
+                };
+                let (is_floating, tile, is_pinned) = tile_info.unwrap();
                 tile.interactive_move_offset = pointer_delta.upscale(factor);
 
                 // Put it back to be able to easily return.
@@ -4221,6 +4267,19 @@ impl<W: LayoutElement> Layout<W> {
 
                             let zoom = mon.overview_zoom();
                             tile_pos = Some((ws_geo.loc + tile_offset.upscale(zoom), zoom));
+                        }
+                    } else if let Some(mon) = monitors
+                        .iter()
+                        .find(|mon| mon.pinned_space.has_window(window))
+                    {
+                        if mon.output() == &output {
+                            let (_, tile_offset) = mon
+                                .pinned_space
+                                .tiles_with_render_positions()
+                                .find(|(tile, _)| tile.window().id() == window)
+                                .unwrap();
+                            let zoom = mon.overview_zoom();
+                            tile_pos = Some((tile_offset.upscale(zoom), zoom))
                         }
                     }
                 }
@@ -4302,6 +4361,7 @@ impl<W: LayoutElement> Layout<W> {
                     width,
                     is_full_width,
                     is_floating,
+                    is_pinned,
                     pointer_ratio_within_window,
                 };
 
@@ -4350,6 +4410,8 @@ impl<W: LayoutElement> Layout<W> {
         let Some(move_) = &self.interactive_move else {
             return;
         };
+
+        // HERE :
 
         let move_ = match move_ {
             InteractiveMoveState::Starting { window_id, .. } => {
@@ -4400,17 +4462,18 @@ impl<W: LayoutElement> Layout<W> {
                 // that if we "just click" then we end up in this branch with state == Starting.
                 // Close the overview in this case.
                 if self.overview_open {
-                    let ws_id = ws_id.unwrap();
-                    if let MonitorSet::Normal { monitors, .. } = &mut self.monitor_set {
-                        for mon in monitors {
-                            if let Some(ws_idx) =
-                                mon.workspaces.iter().position(|ws| ws.id() == ws_id)
-                            {
-                                mon.activate_workspace_with_anim_config(
-                                    ws_idx,
-                                    Some(self.options.animations.overview_open_close.0),
-                                );
-                                break;
+                    if let Some(ws_id) = ws_id {
+                        if let MonitorSet::Normal { monitors, .. } = &mut self.monitor_set {
+                            for mon in monitors {
+                                if let Some(ws_idx) =
+                                    mon.workspaces.iter().position(|ws| ws.id() == ws_id)
+                                {
+                                    mon.activate_workspace_with_anim_config(
+                                        ws_idx,
+                                        Some(self.options.animations.overview_open_close.0),
+                                    );
+                                    break;
+                                }
                             }
                         }
                     }
@@ -4461,8 +4524,59 @@ impl<W: LayoutElement> Layout<W> {
                 active_monitor_idx,
                 ..
             } => {
-                let (mon, insert_ws, position, offset, zoom) =
-                    if let Some(mon) = monitors.iter_mut().find(|mon| mon.output == move_.output) {
+                // HERE:
+                if move_.is_pinned {
+                    debug_assert!(move_.is_floating);
+                    let mon = if let Some(mon) =
+                        monitors.iter_mut().find(|mon| mon.output == move_.output)
+                    {
+                        mon
+                    } else {
+                        &mut monitors[*active_monitor_idx]
+                    };
+
+                    let win_id = move_.tile.window().id().clone();
+
+                    let zoom = mon.overview_zoom();
+
+                    let tile_render_loc = move_.tile_render_location(zoom);
+
+                    let pos = (tile_render_loc).downscale(zoom);
+                    let pos = mon.pinned_space.logical_to_size_frac(pos);
+                    move_.tile.floating_pos = Some(pos);
+
+                    // Set the floating size so it takes into account any window resizing that
+                    // took place during the move.
+                    if let Some(size) = move_.tile.window().expected_size() {
+                        move_.tile.floating_window_size = Some(size);
+                    }
+                    let window_render_loc =
+                        move_.tile_render_location(zoom) + move_.tile.window_loc();
+                    let new_window_render_loc =
+                        (tile_render_loc + move_.tile.window_loc()).upscale(zoom);
+
+                    mon.add_tile(
+                        move_.tile,
+                        MonitorAddWindowTarget::PinnedSpace,
+                        ActivateWindow::Yes,
+                        allow_to_activate_workspace,
+                        move_.width,
+                        move_.is_full_width,
+                        true,
+                    );
+
+                    let tile = mon
+                        .pinned_space
+                        .tiles_mut()
+                        .find(|tile| tile.window().id() == &win_id)
+                        .unwrap();
+                    tile.animate_move_from(
+                        (window_render_loc - new_window_render_loc).downscale(zoom),
+                    );
+                } else {
+                    let (mon, insert_ws, position, offset, zoom) = if let Some(mon) =
+                        monitors.iter_mut().find(|mon| mon.output == move_.output)
+                    {
                         let zoom = mon.overview_zoom();
 
                         let (insert_ws, geo) = mon.insert_position(move_.pointer_pos_within_output);
@@ -4514,116 +4628,120 @@ impl<W: LayoutElement> Layout<W> {
                         (mon, insert_ws, position, Some(ws_geo.loc), zoom)
                     };
 
-                let win_id = move_.tile.window().id().clone();
-                let window_render_loc = move_.tile_render_location(zoom) + move_.tile.window_loc();
+                    let win_id = move_.tile.window().id().clone();
+                    let window_render_loc =
+                        move_.tile_render_location(zoom) + move_.tile.window_loc();
 
-                let ws_idx = match insert_ws {
-                    InsertWorkspace::Existing(ws_id) => mon
-                        .workspaces
-                        .iter()
-                        .position(|ws| ws.id() == ws_id)
-                        .unwrap(),
-                    InsertWorkspace::NewAt(ws_idx) => {
-                        if self.options.empty_workspace_above_first && ws_idx == 0 {
-                            // Reuse the top empty workspace.
-                            0
-                        } else if mon.workspaces.len() - 1 <= ws_idx {
-                            // Reuse the bottom empty workspace.
-                            mon.workspaces.len() - 1
-                        } else {
-                            mon.add_workspace_at(ws_idx);
-                            ws_idx
+                    let ws_idx = match insert_ws {
+                        InsertWorkspace::Existing(ws_id) => mon
+                            .workspaces
+                            .iter()
+                            .position(|ws| ws.id() == ws_id)
+                            .unwrap(),
+                        InsertWorkspace::NewAt(ws_idx) => {
+                            if self.options.empty_workspace_above_first && ws_idx == 0 {
+                                // Reuse the top empty workspace.
+                                0
+                            } else if mon.workspaces.len() - 1 <= ws_idx {
+                                // Reuse the bottom empty workspace.
+                                mon.workspaces.len() - 1
+                            } else {
+                                mon.add_workspace_at(ws_idx);
+                                ws_idx
+                            }
                         }
-                    }
-                };
+                    };
 
-                match position {
-                    InsertPosition::NewColumn(column_idx) => {
-                        let ws_id = mon.workspaces[ws_idx].id();
-                        mon.add_tile(
-                            move_.tile,
-                            MonitorAddWindowTarget::Workspace {
-                                id: ws_id,
-                                column_idx: Some(column_idx),
-                            },
-                            ActivateWindow::Yes,
-                            allow_to_activate_workspace,
-                            move_.width,
-                            move_.is_full_width,
-                            false,
-                        );
-                    }
-                    InsertPosition::InColumn(column_idx, tile_idx) => {
-                        mon.add_tile_to_column(
-                            ws_idx,
-                            column_idx,
-                            Some(tile_idx),
-                            move_.tile,
-                            true,
-                            allow_to_activate_workspace,
-                        );
-                    }
-                    InsertPosition::Floating => {
-                        let tile_render_loc = move_.tile_render_location(zoom);
+                    match position {
+                        InsertPosition::NewColumn(column_idx) => {
+                            let ws_id = mon.workspaces[ws_idx].id();
+                            mon.add_tile(
+                                move_.tile,
+                                MonitorAddWindowTarget::Workspace {
+                                    id: ws_id,
+                                    column_idx: Some(column_idx),
+                                },
+                                ActivateWindow::Yes,
+                                allow_to_activate_workspace,
+                                move_.width,
+                                move_.is_full_width,
+                                false,
+                            );
+                        }
+                        InsertPosition::InColumn(column_idx, tile_idx) => {
+                            mon.add_tile_to_column(
+                                ws_idx,
+                                column_idx,
+                                Some(tile_idx),
+                                move_.tile,
+                                true,
+                                allow_to_activate_workspace,
+                            );
+                        }
+                        InsertPosition::Floating => {
+                            let tile_render_loc = move_.tile_render_location(zoom);
 
-                        let mut tile = move_.tile;
-                        tile.floating_pos = None;
+                            let mut tile = move_.tile;
+                            tile.floating_pos = None;
 
-                        match insert_ws {
-                            InsertWorkspace::Existing(_) => {
-                                if let Some(offset) = offset {
-                                    let pos = (tile_render_loc - offset).downscale(zoom);
-                                    let pos =
-                                        mon.workspaces[ws_idx].floating_logical_to_size_frac(pos);
-                                    tile.floating_pos = Some(pos);
-                                } else {
-                                    error!(
-                                        "offset unset for inserting a floating tile \
+                            match insert_ws {
+                                InsertWorkspace::Existing(_) => {
+                                    if let Some(offset) = offset {
+                                        let pos = (tile_render_loc - offset).downscale(zoom);
+                                        let pos = mon.workspaces[ws_idx]
+                                            .floating_logical_to_size_frac(pos);
+                                        tile.floating_pos = Some(pos);
+                                    } else {
+                                        error!(
+                                            "offset unset for inserting a floating tile \
                                          to existing workspace"
-                                    );
+                                        );
+                                    }
+                                }
+                                InsertWorkspace::NewAt(_) => {
+                                    // When putting a floating tile on a new workspace, we don't really
+                                    // have a good pre-existing position.
                                 }
                             }
-                            InsertWorkspace::NewAt(_) => {
-                                // When putting a floating tile on a new workspace, we don't really
-                                // have a good pre-existing position.
+
+                            // Set the floating size so it takes into account any window resizing that
+                            // took place during the move.
+                            if let Some(size) = tile.window().expected_size() {
+                                tile.floating_window_size = Some(size);
                             }
-                        }
 
-                        // Set the floating size so it takes into account any window resizing that
-                        // took place during the move.
-                        if let Some(size) = tile.window().expected_size() {
-                            tile.floating_window_size = Some(size);
+                            let ws_id = mon.workspaces[ws_idx].id();
+                            mon.add_tile(
+                                tile,
+                                MonitorAddWindowTarget::Workspace {
+                                    id: ws_id,
+                                    column_idx: None,
+                                },
+                                ActivateWindow::Yes,
+                                allow_to_activate_workspace,
+                                move_.width,
+                                move_.is_full_width,
+                                true,
+                            );
                         }
-
-                        let ws_id = mon.workspaces[ws_idx].id();
-                        mon.add_tile(
-                            tile,
-                            MonitorAddWindowTarget::Workspace {
-                                id: ws_id,
-                                column_idx: None,
-                            },
-                            ActivateWindow::Yes,
-                            allow_to_activate_workspace,
-                            move_.width,
-                            move_.is_full_width,
-                            true,
-                        );
                     }
+
+                    // needed because empty_workspace_above_first could have modified the idx
+                    let (tile, tile_render_loc, ws_geo) = mon
+                        .workspaces_with_render_geo_mut(false)
+                        .find_map(|(ws, geo)| {
+                            ws.tiles_with_render_positions_mut(false)
+                                .find(|(tile, _)| tile.window().id() == &win_id)
+                                .map(|(tile, tile_render_loc)| (tile, tile_render_loc, geo))
+                        })
+                        .unwrap();
+                    let new_window_render_loc =
+                        ws_geo.loc + (tile_render_loc + tile.window_loc()).upscale(zoom);
+
+                    tile.animate_move_from(
+                        (window_render_loc - new_window_render_loc).downscale(zoom),
+                    );
                 }
-
-                // needed because empty_workspace_above_first could have modified the idx
-                let (tile, tile_render_loc, ws_geo) = mon
-                    .workspaces_with_render_geo_mut(false)
-                    .find_map(|(ws, geo)| {
-                        ws.tiles_with_render_positions_mut(false)
-                            .find(|(tile, _)| tile.window().id() == &win_id)
-                            .map(|(tile, tile_render_loc)| (tile, tile_render_loc, geo))
-                    })
-                    .unwrap();
-                let new_window_render_loc =
-                    ws_geo.loc + (tile_render_loc + tile.window_loc()).upscale(zoom);
-
-                tile.animate_move_from((window_render_loc - new_window_render_loc).downscale(zoom));
             }
             MonitorSet::NoOutputs { workspaces, .. } => {
                 if workspaces.is_empty() {
@@ -5164,11 +5282,14 @@ impl<W: LayoutElement> Layout<W> {
             &self.interactive_move
         {
             ongoing_scrolling_dnd.get_or_insert_with(|| {
-                let (_, _, ws) = self
+                if let Some((_, _, ws)) = self
                     .workspaces()
                     .find(|(_, _, ws)| ws.has_window(window_id))
-                    .unwrap();
-                !ws.is_floating(window_id)
+                {
+                    !ws.is_floating(window_id)
+                } else {
+                    false
+                }
             });
         }
 

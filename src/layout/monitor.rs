@@ -172,6 +172,8 @@ pub enum MonitorAddWindowTarget<'a, W: LayoutElement> {
     },
     /// Next to this existing window.
     NextTo(&'a W::Id),
+    /// In the pinned space.
+    PinnedSpace,
 }
 
 niri_render_elements! {
@@ -530,6 +532,14 @@ impl<W: LayoutElement> Monitor<W> {
                     .position(|ws| ws.has_window(win_id))
                     .unwrap();
                 (idx, WorkspaceAddWindowTarget::NextTo(win_id))
+            }
+            MonitorAddWindowTarget::PinnedSpace => {
+                let activate = !matches!(activate, ActivateWindow::No);
+                self.pinned_space.add_tile(tile, activate);
+                if activate {
+                    self.pinned_is_active = true;
+                }
+                return;
             }
         };
 
