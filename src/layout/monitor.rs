@@ -1430,6 +1430,10 @@ impl<W: LayoutElement> Monitor<W> {
             return None;
         }
 
+        if let Some(edges) = self.pinned_space.resize_edges_under(pos_within_output) {
+            return Some(edges);
+        }
+
         let (ws, geo) = self.workspace_under(pos_within_output)?;
         ws.resize_edges_under(pos_within_output - geo.loc)
     }

@@ -1261,6 +1261,34 @@ impl<W: LayoutElement> PinnedSpace<W> {
         }
     }
 
+    pub fn resize_edges_under(&self, pos: Point<f64, Logical>) -> Option<ResizeEdge> {
+        self.tiles_with_render_positions()
+            .find_map(|(tile, tile_pos)| {
+                // This logic should be consistent with window_under() in when it returns Some vs.
+                // None.
+                let pos_within_tile = pos - tile_pos;
+
+                if tile.hit(pos_within_tile).is_some() {
+                    let size = tile.tile_size().to_f64();
+
+                    let mut edges = ResizeEdge::empty();
+                    if pos_within_tile.x < size.w / 3. {
+                        edges |= ResizeEdge::LEFT;
+                    } else if 2. * size.w / 3. < pos_within_tile.x {
+                        edges |= ResizeEdge::RIGHT;
+                    }
+                    if pos_within_tile.y < size.h / 3. {
+                        edges |= ResizeEdge::TOP;
+                    } else if 2. * size.h / 3. < pos_within_tile.y {
+                        edges |= ResizeEdge::BOTTOM;
+                    }
+                    return Some(edges);
+                }
+
+                None
+            })
+    }
+
     #[cfg(test)]
     pub fn view_size(&self) -> Size<f64, Logical> {
         self.view_size
