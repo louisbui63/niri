@@ -1951,11 +1951,24 @@ impl<W: LayoutElement> Monitor<W> {
         let involved_workspace_idx = workspace.unwrap_or(self.active_workspace_idx);
         let involved_workspace = &mut self.workspaces[involved_workspace_idx];
 
+        let is_active_in_plane = if is_pinned {
+            self.pinned_space
+                .active_window()
+                .is_some_and(|a| a.id() == w)
+        } else {
+            involved_workspace
+                .active_window()
+                .is_some_and(|a| a.id() == w)
+        };
+
+        let target_is_active = (is_pinned == self.pinned_is_active) && is_active_in_plane;
+
         let transaction = Transaction::new();
         if !is_pinned {
             let mut removed = involved_workspace.remove_tile(w, transaction);
             removed.tile.window_mut().set_pinned(true);
-            self.pinned_space.add_tile(removed.tile, true);
+            self.pinned_space.add_tile(removed.tile, target_is_active);
+            self.pinned_is_active = self.pinned_is_active || target_is_active;
         } else {
             let mut removed = self.pinned_space.remove_tile(w);
             removed.tile.window_mut().set_pinned(false);
@@ -1972,6 +1985,7 @@ impl<W: LayoutElement> Monitor<W> {
                 removed.is_full_width,
                 removed.is_floating,
             );
+            self.pinned_is_active = !(self.pinned_is_active || target_is_active);
         }
     }
 }

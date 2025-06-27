@@ -1915,6 +1915,8 @@ pub enum Action {
     #[knuffel(skip)]
     UnsetWindowUrgent(u64),
     ToggleWindowPinned,
+    #[knuffel(skip)]
+    ToggleWindowPinnedById(u64),
 }
 
 impl From<niri_ipc::Action> for Action {
