@@ -278,4 +278,14 @@ impl LayoutElement for TestWindow {
     fn is_urgent(&self) -> bool {
         false
     }
+
+    fn was_pinned_before_fullscreen(&self) -> bool {
+        false
+    }
+
+    fn is_pinned(&self) -> bool {
+        false
+    }
+
+    fn set_was_pinned_before_fullscreen(&mut self, _value: bool) {}
 }

@@ -174,6 +174,13 @@ impl<'a> WindowRef<'a> {
             WindowRef::Mapped(mapped) => mapped.is_window_cast_target(),
         }
     }
+
+    pub fn was_pinned_before_fullscreen(self) -> bool {
+        match self {
+            WindowRef::Unmapped(_) => false,
+            WindowRef::Mapped(mapped) => mapped.was_pinned_before_fullscreen(),
+        }
+    }
 }
 
 impl ResolvedWindowRules {

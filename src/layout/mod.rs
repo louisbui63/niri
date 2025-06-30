@@ -280,6 +280,10 @@ pub trait LayoutElement {
     fn interactive_resize_data(&self) -> Option<InteractiveResizeData>;
 
     fn on_commit(&mut self, serial: Serial);
+
+    fn was_pinned_before_fullscreen(&self) -> bool;
+    fn is_pinned(&self) -> bool;
+    fn set_was_pinned_before_fullscreen(&mut self, value: bool);
 }
 
 #[derive(Debug)]
@@ -3834,9 +3838,44 @@ impl<W: LayoutElement> Layout<W> {
             }
         }
 
+        let (_, window) = self.windows().find(|(_, win)| win.id() == id).unwrap();
+
+        let should_repin = window.is_fullscreen() && window.was_pinned_before_fullscreen();
+
+        let mut found = false;
         for ws in self.workspaces_mut() {
             if ws.has_window(id) {
                 ws.toggle_fullscreen(id);
+                found = true;
+                break;
+            }
+        }
+        if should_repin {
+            self.toggle_window_pinned(Some(id), true);
+        }
+
+        if found {
+            return;
+        }
+
+        let MonitorSet::Normal {
+            monitors,
+            primary_idx: _,
+            active_monitor_idx: _,
+        } = &mut self.monitor_set
+        else {
+            return;
+        };
+        for mon in monitors {
+            if mon.has_window(id) {
+                // mon.pinned_space
+                //     .tiles_mut()
+                //     .find(|t| t.window().id() == id)
+                //     .unwrap()
+                //     .window_mut()
+                //     .set_was_pinned_before_fullscreen(true);
+                self.toggle_window_pinned(Some(id), true);
+                self.toggle_fullscreen(id);
                 return;
             }
         }
@@ -5454,7 +5493,7 @@ impl<W: LayoutElement> Layout<W> {
         }
     }
 
-    pub fn toggle_window_pinned(&mut self, window: Option<&W::Id>) {
+    pub fn toggle_window_pinned(&mut self, window: Option<&W::Id>, is_fullscreen_op: bool) {
         let mut window = window;
         if window.is_none() {
             window = self
@@ -5483,7 +5522,7 @@ impl<W: LayoutElement> Layout<W> {
         };
         // Here we actually need the monitor who contains the window, as it is the one who should
         // manage the moving around
-        output.toggle_window_pinned(window.as_ref());
+        output.toggle_window_pinned(window.as_ref(), is_fullscreen_op);
     }
 }
 

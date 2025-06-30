@@ -1936,7 +1936,7 @@ impl<W: LayoutElement> Monitor<W> {
         &self.pinned_space
     }
 
-    pub fn toggle_window_pinned(&mut self, window: Option<&W::Id>) {
+    pub fn toggle_window_pinned(&mut self, window: Option<&W::Id>, is_fullscreen_op: bool) {
         let w = if let Some(win) = window {
             win
         } else if let Some(win) = self.active_window() {
@@ -1972,6 +1972,10 @@ impl<W: LayoutElement> Monitor<W> {
         } else {
             let mut removed = self.pinned_space.remove_tile(w);
             removed.tile.window_mut().set_pinned(false);
+            removed
+                .tile
+                .window_mut()
+                .set_was_pinned_before_fullscreen(is_fullscreen_op);
             let wid = involved_workspace.id();
             self.add_tile(
                 removed.tile,

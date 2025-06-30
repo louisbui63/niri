@@ -162,6 +162,9 @@ pub struct Mapped {
     /// These have been "sent" to the window in form of configures, but the window hadn't committed
     /// in response yet.
     uncommited_windowed_fullscreen: Vec<(Serial, bool)>,
+
+    /// Whether the window was pinned just before it was fullscreened
+    was_pinned_before_fullscreen: bool,
 }
 
 niri_render_elements! {
@@ -256,6 +259,7 @@ impl Mapped {
             is_windowed_fullscreen: false,
             is_pending_windowed_fullscreen: false,
             uncommited_windowed_fullscreen: Vec::new(),
+            was_pinned_before_fullscreen: false,
         }
     }
 
@@ -536,6 +540,10 @@ impl Mapped {
 
     pub fn is_urgent(&self) -> bool {
         self.is_urgent
+    }
+
+    pub fn was_pinned_before_fullscreen(&self) -> bool {
+        self.was_pinned_before_fullscreen
     }
 }
 
@@ -1250,5 +1258,16 @@ impl LayoutElement for Mapped {
                     true
                 }
             });
+    }
+
+    fn was_pinned_before_fullscreen(&self) -> bool {
+        self.was_pinned_before_fullscreen
+    }
+
+    fn is_pinned(&self) -> bool {
+        self.is_pinned
+    }
+    fn set_was_pinned_before_fullscreen(&mut self, value: bool) {
+        self.was_pinned_before_fullscreen = value
     }
 }
