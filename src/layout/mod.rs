@@ -3402,6 +3402,17 @@ impl<W: LayoutElement> Layout<W> {
             }
         }
 
+        let mut id = window;
+        if id.is_none() {
+            id = self.focus().map(|w| w.id());
+        }
+        if let Some(id) = id {
+            let (_, w) = self.windows().find(|(_, win)| win.id() == id).unwrap();
+            if w.is_pinned() {
+                self.toggle_window_pinned(Some(&id.clone()), false);
+            }
+        }
+
         let workspace = if let Some(window) = window {
             Some(
                 self.workspaces_mut()
