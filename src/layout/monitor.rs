@@ -1585,14 +1585,15 @@ impl<W: LayoutElement> Monitor<W> {
                 Some(elem)
             };
 
-            let (floating, scrolling) = ws.render_elements(renderer, target, focus_ring);
+            let (floating, scrolling) =
+                ws.render_elements(renderer, target, focus_ring && !self.pinned_is_active);
             let pinned = self
                 .pinned_space
                 .render_elements(
                     renderer,
                     Rectangle::from_size(self.view_size),
                     target,
-                    focus_ring,
+                    focus_ring && self.pinned_is_active,
                 )
                 .into_iter()
                 .map(WorkspaceRenderElement::from)
