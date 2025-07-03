@@ -1086,6 +1086,17 @@ impl<W: LayoutElement> Monitor<W> {
         for ws in &mut self.workspaces {
             ws.update_output_size();
         }
+
+        self.pinned_space.update_config(
+            self.view_size,
+            self.working_area,
+            self.scale.fractional_scale(),
+            Rc::new(
+                Options::clone(&self.options)
+                    .adjusted_for_scale(self.scale.fractional_scale())
+                    .clone(),
+            ),
+        );
     }
 
     pub fn move_workspace_down(&mut self) {
