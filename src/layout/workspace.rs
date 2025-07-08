@@ -842,6 +842,23 @@ impl<W: LayoutElement> Workspace<W> {
         });
     }
 
+    pub fn get_floating_window_center(
+        &self,
+        id: &<W as LayoutElement>::Id,
+    ) -> Option<Point<f64, Logical>> {
+        self.floating.get_window_center(id)
+    }
+
+    pub fn tentative_floating_focus_directional(
+        &self,
+        distance: impl Fn(Point<f64, Logical>, Point<f64, Logical>) -> f64,
+        active_id: &<W as LayoutElement>::Id,
+        center: Point<f64, Logical>,
+    ) -> Option<(&Tile<W>, f64)> {
+        self.floating
+            .tentative_focus_directional(distance, active_id, center)
+    }
+
     pub fn focus_left(&mut self) -> bool {
         if self.floating_is_active.get() {
             self.floating.focus_left()

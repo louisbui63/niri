@@ -786,6 +786,20 @@ impl<W: LayoutElement> FloatingSpace<W> {
         win.request_size_once(win_size, animate);
     }
 
+    pub fn tentative_focus_directional(
+        &self,
+        distance: impl Fn(Point<f64, Logical>, Point<f64, Logical>) -> f64,
+        active_id: &<W as LayoutElement>::Id,
+        center: Point<f64, Logical>,
+    ) -> Option<(&Tile<W>, f64)> {
+        let result = zip(&self.tiles, &self.data)
+            .filter(|(tile, _)| tile.window().id() != active_id)
+            .map(|(tile, data)| (tile, distance(center, data.center())))
+            .filter(|(_, dist)| *dist > 0.)
+            .min_by(|(_, dist_a), (_, dist_b)| f64::total_cmp(dist_a, dist_b));
+        result
+    }
+
     fn focus_directional(
         &mut self,
         distance: impl Fn(Point<f64, Logical>, Point<f64, Logical>) -> f64,
@@ -808,6 +822,11 @@ impl<W: LayoutElement> FloatingSpace<W> {
         } else {
             false
         }
+    }
+
+    pub fn get_window_center(&self, id: &<W as LayoutElement>::Id) -> Option<Point<f64, Logical>> {
+        let active_idx = self.idx_of(id)?;
+        Some(self.data[active_idx].center())
     }
 
     pub fn focus_left(&mut self) -> bool {

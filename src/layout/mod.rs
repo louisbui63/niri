@@ -2033,17 +2033,25 @@ impl<W: LayoutElement> Layout<W> {
     }
 
     pub fn focus_left(&mut self) {
-        let Some(workspace) = self.active_workspace_mut() else {
+        let Some(monitor) = self.active_monitor() else {
+            let Some(workspace) = self.active_workspace_mut() else {
+                return;
+            };
+            workspace.focus_left();
             return;
         };
-        workspace.focus_left();
+        monitor.focus_left();
     }
 
     pub fn focus_right(&mut self) {
-        let Some(workspace) = self.active_workspace_mut() else {
+        let Some(monitor) = self.active_monitor() else {
+            let Some(workspace) = self.active_workspace_mut() else {
+                return;
+            };
+            workspace.focus_right();
             return;
         };
-        workspace.focus_right();
+        monitor.focus_right();
     }
 
     pub fn focus_column_first(&mut self) {
@@ -2082,10 +2090,14 @@ impl<W: LayoutElement> Layout<W> {
     }
 
     pub fn focus_window_up_or_output(&mut self, output: &Output) -> bool {
-        if let Some(workspace) = self.active_workspace_mut() {
-            if workspace.focus_up() {
-                return false;
-            }
+        if if let Some(monitor) = self.active_monitor() {
+            monitor.focus_up()
+        } else if let Some(workspace) = self.active_workspace_mut() {
+            workspace.focus_up()
+        } else {
+            false
+        } {
+            return false;
         }
 
         self.focus_output(output);
@@ -2093,10 +2105,14 @@ impl<W: LayoutElement> Layout<W> {
     }
 
     pub fn focus_window_down_or_output(&mut self, output: &Output) -> bool {
-        if let Some(workspace) = self.active_workspace_mut() {
-            if workspace.focus_down() {
-                return false;
-            }
+        if if let Some(monitor) = self.active_monitor() {
+            monitor.focus_down()
+        } else if let Some(workspace) = self.active_workspace_mut() {
+            workspace.focus_down()
+        } else {
+            false
+        } {
+            return false;
         }
 
         self.focus_output(output);
@@ -2104,10 +2120,14 @@ impl<W: LayoutElement> Layout<W> {
     }
 
     pub fn focus_column_left_or_output(&mut self, output: &Output) -> bool {
-        if let Some(workspace) = self.active_workspace_mut() {
-            if workspace.focus_left() {
-                return false;
-            }
+        if if let Some(monitor) = self.active_monitor() {
+            monitor.focus_left()
+        } else if let Some(workspace) = self.active_workspace_mut() {
+            workspace.focus_left()
+        } else {
+            false
+        } {
+            return false;
         }
 
         self.focus_output(output);
@@ -2115,10 +2135,14 @@ impl<W: LayoutElement> Layout<W> {
     }
 
     pub fn focus_column_right_or_output(&mut self, output: &Output) -> bool {
-        if let Some(workspace) = self.active_workspace_mut() {
-            if workspace.focus_right() {
-                return false;
-            }
+        if if let Some(monitor) = self.active_monitor() {
+            monitor.focus_right()
+        } else if let Some(workspace) = self.active_workspace_mut() {
+            workspace.focus_right()
+        } else {
+            false
+        } {
+            return false;
         }
 
         self.focus_output(output);
@@ -2133,45 +2157,69 @@ impl<W: LayoutElement> Layout<W> {
     }
 
     pub fn focus_down(&mut self) {
-        let Some(workspace) = self.active_workspace_mut() else {
+        let Some(monitor) = self.active_monitor() else {
+            let Some(workspace) = self.active_workspace_mut() else {
+                return;
+            };
+            workspace.focus_down();
             return;
         };
-        workspace.focus_down();
+        monitor.focus_down();
     }
 
     pub fn focus_up(&mut self) {
-        let Some(workspace) = self.active_workspace_mut() else {
+        let Some(monitor) = self.active_monitor() else {
+            let Some(workspace) = self.active_workspace_mut() else {
+                return;
+            };
+            workspace.focus_up();
             return;
         };
-        workspace.focus_up();
+        monitor.focus_up();
     }
 
     pub fn focus_down_or_left(&mut self) {
-        let Some(workspace) = self.active_workspace_mut() else {
+        let Some(monitor) = self.active_monitor() else {
+            let Some(workspace) = self.active_workspace_mut() else {
+                return;
+            };
+            workspace.focus_down_or_left();
             return;
         };
-        workspace.focus_down_or_left();
+        monitor.focus_down_or_left();
     }
 
     pub fn focus_down_or_right(&mut self) {
-        let Some(workspace) = self.active_workspace_mut() else {
+        let Some(monitor) = self.active_monitor() else {
+            let Some(workspace) = self.active_workspace_mut() else {
+                return;
+            };
+            workspace.focus_down_or_right();
             return;
         };
-        workspace.focus_down_or_right();
+        monitor.focus_down_or_right();
     }
 
     pub fn focus_up_or_left(&mut self) {
-        let Some(workspace) = self.active_workspace_mut() else {
+        let Some(monitor) = self.active_monitor() else {
+            let Some(workspace) = self.active_workspace_mut() else {
+                return;
+            };
+            workspace.focus_up_or_left();
             return;
         };
-        workspace.focus_up_or_left();
+        monitor.focus_up_or_left();
     }
 
     pub fn focus_up_or_right(&mut self) {
-        let Some(workspace) = self.active_workspace_mut() else {
+        let Some(monitor) = self.active_monitor() else {
+            let Some(workspace) = self.active_workspace_mut() else {
+                return;
+            };
+            workspace.focus_up_or_right();
             return;
         };
-        workspace.focus_up_or_right();
+        monitor.focus_up_or_right();
     }
 
     pub fn focus_window_or_workspace_down(&mut self) {

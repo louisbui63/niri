@@ -647,13 +647,13 @@ impl<W: LayoutElement> Monitor<W> {
     }
 
     pub fn focus_window_or_workspace_down(&mut self) {
-        if !self.active_workspace().focus_down() {
+        if !self.focus_down() {
             self.switch_workspace_down();
         }
     }
 
     pub fn focus_window_or_workspace_up(&mut self) {
-        if !self.active_workspace().focus_up() {
+        if !self.focus_up() {
             self.switch_workspace_up();
         }
     }
@@ -2002,6 +2002,128 @@ impl<W: LayoutElement> Monitor<W> {
                 removed.is_floating,
             );
             self.pinned_is_active = !(self.pinned_is_active || target_is_active);
+        }
+    }
+
+    fn focus_directional(
+        &mut self,
+        distance: impl Fn(Point<f64, Logical>, Point<f64, Logical>) -> f64 + Copy,
+    ) -> bool {
+        let (active_id, center) = if self.pinned_is_active {
+            let Some(active_id) = self.pinned_space.active_window().map(|w| w.id()) else {
+                return false;
+            };
+            let Some(center) = self.pinned_space.get_window_center(active_id) else {
+                return false;
+            };
+            (active_id, center)
+        } else {
+            let ws = self.active_workspace();
+            let Some(active_id) = ws.active_window().map(|w| w.id()) else {
+                return false;
+            };
+            let Some(center) = ws.get_floating_window_center(active_id) else {
+                return false;
+            };
+            (&active_id.clone(), center)
+        };
+
+        let pinned_result = self
+            .pinned_space
+            .tentative_focus_directional(distance, active_id, center)
+            .map(|(tile, dist)| (tile.window().id().clone(), dist));
+
+        let floating_result = self.workspaces[self.active_workspace_idx]
+            .tentative_floating_focus_directional(distance, active_id, center)
+            .map(|(tile, dist)| (tile.window().id().clone(), dist));
+
+        if let Some((w1, d1)) = pinned_result {
+            if let Some((w2, d2)) = floating_result {
+                if d1 < d2 {
+                    self.pinned_is_active = true;
+                    self.pinned_space.activate_window(&w1)
+                } else {
+                    self.pinned_is_active = false;
+                    self.active_workspace().activate_window(&w2)
+                }
+            } else {
+                self.pinned_is_active = true;
+                self.pinned_space.activate_window(&w1)
+            }
+        } else {
+            let Some((w, _)) = floating_result else {
+                return false;
+            };
+            self.pinned_is_active = false;
+            self.active_workspace().activate_window(&w)
+        }
+    }
+
+    pub fn is_tiling(&mut self) -> bool {
+        !self.pinned_is_active && !self.active_workspace().floating_is_active()
+    }
+
+    pub fn focus_down(&mut self) -> bool {
+        if self.is_tiling() {
+            self.active_workspace().focus_down()
+        } else {
+            self.focus_directional(|focus, other| other.y - focus.y)
+        }
+    }
+
+    pub fn focus_up(&mut self) -> bool {
+        if self.is_tiling() {
+            self.active_workspace().focus_up()
+        } else {
+            self.focus_directional(|focus, other| focus.y - other.y)
+        }
+    }
+
+    pub fn focus_left(&mut self) -> bool {
+        if self.is_tiling() {
+            self.active_workspace().focus_left()
+        } else {
+            self.focus_directional(|focus, other| focus.x - other.x)
+        }
+    }
+
+    pub fn focus_right(&mut self) -> bool {
+        if self.is_tiling() {
+            self.active_workspace().focus_right()
+        } else {
+            self.focus_directional(|focus, other| other.x - focus.x)
+        }
+    }
+
+    pub fn focus_down_or_left(&mut self) {
+        if self.is_tiling() {
+            self.active_workspace().focus_down_or_left();
+        } else {
+            self.focus_directional(|focus, other| other.y - focus.y);
+        }
+    }
+
+    pub fn focus_down_or_right(&mut self) {
+        if self.is_tiling() {
+            self.active_workspace().focus_down_or_right();
+        } else {
+            self.focus_directional(|focus, other| other.y - focus.y);
+        }
+    }
+
+    pub fn focus_up_or_left(&mut self) {
+        if self.is_tiling() {
+            self.active_workspace().focus_up_or_left();
+        } else {
+            self.focus_directional(|focus, other| focus.y - other.y);
+        }
+    }
+
+    pub fn focus_up_or_right(&mut self) {
+        if self.is_tiling() {
+            self.active_workspace().focus_up_or_right();
+        } else {
+            self.focus_directional(|focus, other| focus.y - other.y);
         }
     }
 }
