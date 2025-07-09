@@ -527,7 +527,6 @@ impl<W: LayoutElement> PinnedSpace<W> {
         id: &W::Id,
         blocker: TransactionBlocker,
     ) {
-        log::warn!("start close anim (pinned)");
         let (tile, tile_pos) = self
             .tiles_with_render_positions_mut(false)
             .find(|(tile, _)| tile.window().id() == id)

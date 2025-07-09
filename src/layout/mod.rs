@@ -1613,7 +1613,6 @@ impl<W: LayoutElement> Layout<W> {
     }
 
     pub fn activate_window(&mut self, window: &W::Id) {
-        warn!("activating window {:?}", window);
         if let Some(InteractiveMoveState::Moving(move_)) = &self.interactive_move {
             if move_.tile.window().id() == window {
                 return;
@@ -3412,6 +3411,9 @@ impl<W: LayoutElement> Layout<W> {
         if let Some(InteractiveMoveState::Moving(move_)) = &mut self.interactive_move {
             if window.is_none() || window == Some(move_.tile.window().id()) {
                 move_.is_floating = !move_.is_floating;
+                if !move_.is_floating {
+                    move_.is_pinned = false;
+                }
 
                 // When going to floating, restore the floating window size.
                 if move_.is_floating {
@@ -5259,7 +5261,6 @@ impl<W: LayoutElement> Layout<W> {
         blocker: TransactionBlocker,
     ) {
         let _span = tracy_client::span!("Layout::start_close_animation_for_window");
-        log::warn!("start close anim");
 
         let zoom = self.overview_zoom();
 
@@ -5553,6 +5554,39 @@ impl<W: LayoutElement> Layout<W> {
     }
 
     pub fn toggle_window_pinned(&mut self, window: Option<&W::Id>, is_fullscreen_op: bool) {
+        if let Some(InteractiveMoveState::Moving(move_)) = &mut self.interactive_move {
+            if window.is_none() || window == Some(move_.tile.window().id()) {
+                move_.is_pinned = !move_.is_pinned;
+                // When going to floating, restore the floating window size.
+                if move_.is_pinned {
+                    move_.is_floating = true;
+
+                    let floating_size = move_.tile.floating_window_size;
+                    let win = move_.tile.window_mut();
+                    let mut size =
+                        floating_size.unwrap_or_else(|| win.expected_size().unwrap_or_default());
+
+                    // Apply min/max size window rules. If requesting a concrete size, apply
+                    // completely; if requesting (0, 0), apply only when min/max results in a fixed
+                    // size.
+                    let min_size = win.min_size();
+                    let max_size = win.max_size();
+                    size.w = ensure_min_max_size_maybe_zero(size.w, min_size.w, max_size.w);
+                    size.h = ensure_min_max_size_maybe_zero(size.h, min_size.h, max_size.h);
+
+                    win.request_size_once(size, true);
+
+                    // Animate the tile back to opaque.
+                    move_.tile.animate_alpha(
+                        INTERACTIVE_MOVE_ALPHA,
+                        1.,
+                        self.options.animations.window_movement.0,
+                    );
+                }
+                return;
+            }
+        }
+
         let mut window = window;
         if window.is_none() {
             window = self
